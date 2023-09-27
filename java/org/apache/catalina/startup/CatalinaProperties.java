@@ -16,6 +16,9 @@
  */
 package org.apache.catalina.startup;
 
+import org.apache.juli.logging.Log;
+import org.apache.juli.logging.LogFactory;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -23,9 +26,6 @@ import java.io.InputStream;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.Properties;
-
-import org.apache.juli.logging.Log;
-import org.apache.juli.logging.LogFactory;
 
 
 /**
@@ -62,6 +62,7 @@ public class CatalinaProperties {
         InputStream is = null;
         String fileName = "catalina.properties";
 
+        // 如果启动时已经设置catalina.config 那么读取这个的值
         try {
             String configUrl = System.getProperty("catalina.config");
             if (configUrl != null) {
@@ -76,6 +77,7 @@ public class CatalinaProperties {
             handleThrowable(t);
         }
 
+        // 否则拿到BootStrap的catalinaBaseFile的值并且创建流进行读取文件
         if (is == null) {
             try {
                 File home = new File(Bootstrap.getCatalinaBase());
@@ -87,6 +89,7 @@ public class CatalinaProperties {
             }
         }
 
+        // 仍然为空读取/org/apache/catalina/startup/catalina.properties
         if (is == null) {
             try {
                 is = CatalinaProperties.class.getResourceAsStream
@@ -96,6 +99,7 @@ public class CatalinaProperties {
             }
         }
 
+        // 不为空通过文件输入流创建Properties类
         if (is != null) {
             try {
                 properties = new Properties();
@@ -112,6 +116,7 @@ public class CatalinaProperties {
             }
         }
 
+        // 尽了最大努力取寻找config配置文件没找到只能创建一个空Properties
         if ((is == null)) {
             // Do something
             log.warn("Failed to load catalina properties file");
@@ -119,7 +124,7 @@ public class CatalinaProperties {
             properties = new Properties();
         }
 
-        // Register the properties as system properties
+        // 将Properties里面的键值对存入系统属性方便获取
         Enumeration<?> enumeration = properties.propertyNames();
         while (enumeration.hasMoreElements()) {
             String name = (String) enumeration.nextElement();

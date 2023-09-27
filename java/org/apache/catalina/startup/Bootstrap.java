@@ -16,6 +16,12 @@
  */
 package org.apache.catalina.startup;
 
+import org.apache.catalina.security.SecurityClassLoad;
+import org.apache.catalina.startup.ClassLoaderFactory.Repository;
+import org.apache.catalina.startup.ClassLoaderFactory.RepositoryType;
+import org.apache.juli.logging.Log;
+import org.apache.juli.logging.LogFactory;
+
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -28,12 +34,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import org.apache.catalina.security.SecurityClassLoad;
-import org.apache.catalina.startup.ClassLoaderFactory.Repository;
-import org.apache.catalina.startup.ClassLoaderFactory.RepositoryType;
-import org.apache.juli.logging.Log;
-import org.apache.juli.logging.LogFactory;
 
 /**
  * Bootstrap loader for Catalina.  This application constructs a class loader
@@ -63,13 +63,17 @@ public final class Bootstrap {
     private static final Pattern PATH_PATTERN = Pattern.compile("(\"[^\"]*\")|(([^,])*)");
 
     static {
-        // Will always be non-null
+        // 获取当前应用程序的工作目录
         String userDir = System.getProperty("user.dir");
 
-        // Home first
+        /**
+         * 获取系统属性中catalina.home的值
+         * 启动Bootstrap时已经设置好catalina.home的value
+         **/
         String home = System.getProperty(Constants.CATALINA_HOME_PROP);
         File homeFile = null;
 
+        // 启动时已经设置catalina.home的值 这里直接new File获取homFile
         if (home != null) {
             File f = new File(home);
             try {
@@ -79,11 +83,11 @@ public final class Bootstrap {
             }
         }
 
+        // 如果启动时没有设置catalina.home的值 这里会去找工作目录下是否存在bootstrap.jar
         if (homeFile == null) {
-            // First fall-back. See if current directory is a bin directory
-            // in a normal Tomcat install
             File bootstrapJar = new File(userDir, "bootstrap.jar");
 
+            // 如果存在bootstrap.jar homeFile设置为userDir上级目录
             if (bootstrapJar.exists()) {
                 File f = new File(userDir, "..");
                 try {
@@ -94,6 +98,7 @@ public final class Bootstrap {
             }
         }
 
+        // 如果homeFile仍然为空 设置为当前目录
         if (homeFile == null) {
             // Second fall-back. Use current directory
             File f = new File(userDir);
@@ -104,11 +109,11 @@ public final class Bootstrap {
             }
         }
 
+        // 获取到homeFile后 将值设置到系统属性中
         catalinaHomeFile = homeFile;
-        System.setProperty(
-                Constants.CATALINA_HOME_PROP, catalinaHomeFile.getPath());
+        System.setProperty(Constants.CATALINA_HOME_PROP, catalinaHomeFile.getPath());
 
-        // Then base
+        // 获取catalina.base 如果启动时提前设置了直接取设置的值 否则使用catalinaHomeFile
         String base = System.getProperty(Constants.CATALINA_BASE_PROP);
         if (base == null) {
             catalinaBaseFile = catalinaHomeFile;
@@ -121,8 +126,7 @@ public final class Bootstrap {
             }
             catalinaBaseFile = baseFile;
         }
-        System.setProperty(
-                Constants.CATALINA_BASE_PROP, catalinaBaseFile.getPath());
+        System.setProperty(Constants.CATALINA_BASE_PROP, catalinaBaseFile.getPath());
     }
 
     // -------------------------------------------------------------- Variables
@@ -158,6 +162,7 @@ public final class Bootstrap {
     }
 
 
+    // 根据CatalinaProperties配置文件创建ClassLoader并且返回
     private ClassLoader createClassLoader(String name, ClassLoader parent) throws Exception {
 
         String value = CatalinaProperties.getProperty(name + ".loader");
@@ -185,8 +190,7 @@ public final class Bootstrap {
 
             // Local repository
             if (repository.endsWith("*.jar")) {
-                repository = repository.substring
-                    (0, repository.length() - "*.jar".length());
+                repository = repository.substring(0, repository.length() - "*.jar".length());
                 repositories.add(new Repository(repository, RepositoryType.GLOB));
             } else if (repository.endsWith(".jar")) {
                 repositories.add(new Repository(repository, RepositoryType.JAR));
@@ -199,12 +203,7 @@ public final class Bootstrap {
     }
 
 
-    /**
-     * System property replacement in the given string.
-     *
-     * @param str The original string
-     * @return the modified string
-     */
+    // ${value} 占位符替换为系统属性中对应的value
     protected String replace(String str) {
         // Implementation is copied from ClassLoaderLogManager.replace(),
         // but added special processing for catalina.home and catalina.base.
@@ -251,16 +250,19 @@ public final class Bootstrap {
      */
     public void init() throws Exception {
 
+        // 初始化ClassLoader commonLoader->catalinaLoader\sharedLoader
         initClassLoaders();
 
+        // 通过类加载器初始化类
         Thread.currentThread().setContextClassLoader(catalinaLoader);
-
         SecurityClassLoad.securityClassLoad(catalinaLoader);
 
         // Load our startup class and call its process() method
         if (log.isDebugEnabled()) {
             log.debug("Loading startup class");
         }
+
+        // 初始化Catalina类并且实例化Catalina
         Class<?> startupClass = catalinaLoader.loadClass("org.apache.catalina.startup.Catalina");
         Object startupInstance = startupClass.getConstructor().newInstance();
 
@@ -268,6 +270,8 @@ public final class Bootstrap {
         if (log.isDebugEnabled()) {
             log.debug("Setting startup class properties");
         }
+
+        // 通过反射设置Catalina父加载器
         String methodName = "setParentClassLoader";
         Class<?> paramTypes[] = new Class[1];
         paramTypes[0] = Class.forName("java.lang.ClassLoader");
@@ -281,12 +285,10 @@ public final class Bootstrap {
     }
 
 
-    /**
-     * Load daemon.
-     */
+    // 启动类load方法会调用Catalina的load方法 然后逐级调用子组件的init方法进行初始化
     private void load(String[] arguments) throws Exception {
 
-        // Call the load() method
+        // 通过反射调用Catalina的load方法
         String methodName = "load";
         Object param[];
         Class<?> paramTypes[];
@@ -438,7 +440,7 @@ public final class Bootstrap {
      * @param args Command line arguments to be processed
      */
     public static void main(String args[]) {
-
+        // 初始化启动类 初始化必须的类加载器
         synchronized (daemonLock) {
             if (daemon == null) {
                 // Don't set daemon until init() has completed
@@ -459,6 +461,7 @@ public final class Bootstrap {
             }
         }
 
+        // 启动类初始化完成后 默认命令行参数是start 命令行可以修改参数
         try {
             String command = "start";
             if (args.length > 0) {
@@ -568,7 +571,11 @@ public final class Bootstrap {
         return t;
     }
 
-    // Protected for unit testing
+    /**
+     * String value = "\"/path/with/quotes\", /unquoted/path, \"/another/quoted/path\"";
+     * getPaths(value) ===> ["/path/with/quotes","/unquoted/path","/another/quoted/path"]
+     * 将输入的路径字符串拆分成为一个个路径并且放入数组中返回
+     **/
     protected static String[] getPaths(String value) {
 
         List<String> result = new ArrayList<>();
